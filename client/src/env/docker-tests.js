@@ -1,21 +1,76 @@
 var config = {
-  apiUrl: "http://api:4000",
-  uiUrl: "http://client:3000",
+  apiUrl: "https://api:4000",
+  uiUrl: "https://client:3000",
+  // ---------------------------------------------------------------------------
+  // THIS SERVICE SERVES TLS, AND EVERY ADDRESS ABOVE FOLLOWS IT.
+  //
+  // The api and the client both bind https now (common/tls_listener.js), on ONE
+  // certificate generated per run by common/common.sh's
+  // generateStackTlsCertificate() — which calls common/generate_tls_cert.js,
+  // which is a caller of this project's own client/src/x509.js rather than
+  // another encoder.
+  //
+  // The certificate itself is NOT named here. The launchers pass
+  // TLS_CERT_FILE and TLS_KEY_FILE, which outrank this file, because a
+  // checked-in configuration cannot name a path that is created per run — the
+  // same reason the mock STS's certificate is fetched rather than declared. A
+  // process started with `https: true` and no certificate refuses to bind and
+  // says which generator makes one, rather than inventing a key nothing in the
+  // run trusts.
+  //
+  // WHAT THIS BOUGHT, beyond the obvious: an https origin is a SECURE CONTEXT,
+  // so `window.crypto.subtle` exists on the containerized stack without
+  // --unsafely-treat-insecure-origin-as-secure; and an https page may submit a
+  // form to an https action, which is what Chrome's "Form is not secure"
+  // interstitial had been refusing for every SAML and WS-Federation response
+  // once the mock went TLS (53 of 77 jobs on 2026-08-27). Both hazards are
+  // recorded in tests/browser_flags.js and both are now structurally absent
+  // rather than flagged around.
+  // ---------------------------------------------------------------------------
+  https: true,
   hostname: "0.0.0.0",
   port: "3000",
-  logLevel: "debug",
+  // ---------------------------------------------------------------------
+  // `info`, AND IT WAS `debug` UNTIL 2026-09-01 — the CLIENT half of the
+  // change api/env/docker-tests.js records beside it, which went to `info`
+  // a day earlier (issue #269).
+  //
+  // THIS ONE REACHES THE BROWSER. `client/build.js` bakes the file this key
+  // lives in into every bundle (browserify -t envify --CONFIG_FILE), so the
+  // level is not only the client SERVER's: it is the level every page logs
+  // at, in Chrome, inside the tests container. A record there is a JSON
+  // serialization plus a console write — ~15us measured in headless Chrome —
+  // and the root CLAUDE.md's style notes already record what that costs when
+  // it is on a path something walks a thousand times.
+  //
+  // IT IS WORST ON THE RUN THAT COULD AFFORD IT LEAST. `./run-coverage.sh`
+  // serves Istanbul-INSTRUMENTED bundles, which are slower to parse and
+  // slower to execute, to a pool of jobs sharing a four-core GitHub runner —
+  // and every browser wait in this suite is `waitTime`, two seconds. On
+  // 2026-09-01 that combination took [08] OAuth2 Authorization Code (public,
+  // PKCE=false) red on a two-second wait for `#token_client_id` after the
+  // Keycloak redirect, i.e. it reported the page's LOAD TIME as an assertion
+  // about the page. See TEST_WAIT_TIME_MS in tests/env/test.js for the other
+  // half of that fix.
+  //
+  // For a debug run of this stack, set it back for the length of that run —
+  // or use `env/local.js`, which is still `debug` for exactly that reason.
+  // Nothing else changes: the SEVERE console assertions several tests make
+  // are error-level and are unaffected by this key.
+  // ---------------------------------------------------------------------
+  logLevel: "info",
   // api backend is available, so both frontend and backend initiation are
   // offered.
   backendAvailable: true,
   // SAML Service Provider identity + ACS/SLO endpoints (hosted by the api
   // layer).
-  spEntityId: "http://client:3000/saml/sp",
-  acsUrl: "http://api:4000/samlacs",
-  sloUrl: "http://api:4000/samlslo",
+  spEntityId: "https://client:3000/saml/sp",
+  acsUrl: "https://api:4000/samlacs",
+  sloUrl: "https://api:4000/samlslo",
   // WS-Federation: RP realm default + the API landing endpoint (wreply target),
   // reachable by its compose DNS name inside the test network.
   wsfedRealm: "urn:wsfed:test:rp",
-  wsfedAcsUrl: "http://api:4000/wsfed",
+  wsfedAcsUrl: "https://api:4000/wsfed",
   wsfedMetadataUrlDefault: "http://keycloak-wsfed:8080/auth/realms/wsfed-testing/protocol/wsfed/descriptor",
   samlMetadataUrlDefault: "http://keycloak:8080/realms/debugger-testing/protocol/saml/descriptor",
   // Default WS-Trust STS endpoint (the mock STS service, reachable by its

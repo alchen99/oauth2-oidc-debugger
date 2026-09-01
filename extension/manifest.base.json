@@ -6,9 +6,9 @@
   "permissions": ["storage", "scripting", "alarms", "management"],
   "optional_host_permissions": ["*://*/*"],
   "host_permissions": [
-    "http://localhost:3000/*",
+    "https://localhost:3000/*",
     "http://localhost:3100/*",
-    "http://client:3000/*",
+    "https://client:3000/*",
     "https://idptools.com/*",
     "https://test.idptools.com/*"
   ],
@@ -16,9 +16,9 @@
   "content_scripts": [
     {
       "matches": [
-        "http://localhost:3000/*",
+        "https://localhost:3000/*",
         "http://localhost:3100/*",
-        "http://client:3000/*",
+        "https://client:3000/*",
         "https://idptools.com/*",
         "https://test.idptools.com/*"
       ],

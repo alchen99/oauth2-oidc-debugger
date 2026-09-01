@@ -61,6 +61,32 @@ export CONFIG_FILE="${CONFIG_FILE:-./env/docker-tests.js}"
 export TEST_JOB_TIMEOUT_MS="${TEST_JOB_TIMEOUT_MS:-2700000}"
 
 # ---------------------------------------------------------------------------
+# A LONGER BROWSER WAIT, FOR THE SAME REASON AND WITH THE SAME SHAPE.
+#
+# `waitTime` in tests/env/*.js is the timeout every `driver.wait()` in the
+# suite is given, and it is two seconds. That is the right number for the
+# PLAIN containerized suite. It is not the right number here, and the
+# arithmetic is the same one the watchdog above is calibrated on: these are
+# the same pages served as Istanbul-INSTRUMENTED bundles — slower to parse
+# and slower to execute — to a pool of jobs sharing a four-core runner.
+#
+# It cost a run on 2026-09-01. 288 of 289 jobs passed and [08] OAuth2
+# Authorization Code (public, PKCE=false) failed on a two-second wait for
+# `#token_client_id` after the Keycloak redirect: the whole exchange had
+# already worked, and what the report carried was the instrumented page's
+# LOAD TIME, stated as an assertion about the page. Nothing in that message
+# names coverage, instrumentation or a timeout budget.
+#
+# A wait is a TIMEOUT and never a sleep, so raising it costs a passing run
+# nothing at all — it only lets a genuinely broken test take longer to say
+# so, which is bounded by TEST_JOB_TIMEOUT_MS above.
+#
+# The caller's own value wins, and unset means the config file's two seconds,
+# so this changes nothing for anybody who asks for something else.
+# ---------------------------------------------------------------------------
+export TEST_WAIT_TIME_MS="${TEST_WAIT_TIME_MS:-10000}"
+
+# ---------------------------------------------------------------------------
 # THE MOCK STS'S LOG LEVEL, exposed here so a run can turn it down.
 #
 # `STS_LOG_LEVEL` is a setting of the mock (see sts/common/config.js), and an
@@ -184,6 +210,20 @@ WALTID_KEYCLOAK_CLIENT_SECRET=waltid-issuer-test-secret
 export WALTID_BASE_URL WALTID_KEYCLOAK_AUTHORIZE_URL WALTID_KEYCLOAK_TOKEN_URL
 export WALTID_KEYCLOAK_CLIENT_ID WALTID_KEYCLOAK_CLIENT_SECRET
 export WALTID_VERIFIER_BASE_URL WALTID_VERIFIER_CLIENT_ID
+
+# ---------------------------------------------------------------------------
+# THE STACK'S TLS PAIR, BEFORE THE BUILD.
+#
+# The api and the client serve https, and this is the pair they serve. It has
+# to exist before compose starts, and not for their sake: the MOCK STS pushes
+# Security Event Tokens to the api (RFC 8935), so its container is handed the
+# anchor in its environment, and a certificate a service invents at its own
+# startup cannot be in an environment built a moment earlier. One pair for
+# both services; see common/tls_listener.js. STACK_TLS_DIR is the bind-mount
+# source every compose file here names.
+# ---------------------------------------------------------------------------
+generateStackTlsCertificate "${CURRENT_DIR}"
+check_return_code $?
 
 generateWaltidIssuerKey
 check_return_code $?

@@ -1,5 +1,34 @@
 # api/ — the Express backend (port 4000)
 
+**It serves TLS.** `https://localhost:4000` on the host launchers,
+`https://api:4000` on the containerized bridge — `common/tls_listener.js`
+decides it, `https: true` in `api/env/local.js` and `api/env/docker-tests.js`
+turns it on, and `TLS_CERT_FILE`/`TLS_KEY_FILE` (which outrank the
+configuration) name the pair. That pair is generated once per run, before
+compose starts, by `common/common.sh`'s `generateStackTlsCertificate()`, and it
+is **shared with the client** rather than one each: the mock STS PUSHES to this
+service (RFC 8935 Shared Signals delivery, `POST /ssf/receiver/:id`), so its
+container has to be handed the anchor in its environment, which is impossible
+for a certificate a service generates at its own startup. `off` is still the
+default in code, so a deployment behind a TLS-terminating proxy is not forced
+to terminate it twice.
+
+Three consequences reach the rest of this file. `req.protocol` is `https`, so
+every URL this service derives from it — the SSF receiver's
+`deliveryEndpoint` most visibly — follows without being told, exactly as the
+mock STS's own `baseUrlOf()` does. The **SAML and WS-Federation landings**
+(`/samlacs`, `/samlslo`, `/wsfed`) are https actions on forms served from an
+https page, which is what Chrome's "Form is not secure" interstitial had been
+refusing between the TLS mock and this plain-http service. And
+**`sts_truststore.sh` now writes a BUNDLE** rather than pointing
+`NODE_EXTRA_CA_CERTS` at one file — see its own header: this service makes
+outbound calls to its own certificate (`POST /ssf/call` aimed at
+`POST /ssf/receiver/:id` is the SSF workflow's ordinary shape), and without the
+anchor those died at the handshake and were reported as a **502**, which by
+this file's three-outcomes rule means the far end did not deliver.
+`tests/api_ssf.js` is what caught that.
+
+
 Scope: everything under `api/`. Cross-cutting matters — versioning, `CONFIG_FILE`, the key-material rules, how the suite is run — stay in the repo-root `CLAUDE.md`.
 
 It proxies token endpoint calls server-side and provides a `/claimdescription` endpoint with cached IANA JWT claim metadata. It also speaks three protocols the browser cannot: it relays Kerberos to a KDC (`POST /krb5/*`), it IS the LDAP client (`POST /ldap/*`), and it makes every SPIFFE gRPC call (`POST /spiffe/call`). All three are raw TCP, so all three enforce the address policy themselves — see the sections below.
@@ -287,8 +316,22 @@ type drops such a token with no error anybody sees and it is a finding worth
 surfacing. A parser that refused it would hide the finding behind an empty body.
 
 `GET /ssf/limits` publishes all of it, and it is also how the page learns there
-is an api at all. `tests/api_ssf.js` drives the routes; `tests/ssf_engine.js`
-drives both modules with no listener. See `docs/ssf.md`.
+is an api at all. **It also says whether the ADDRESS layers of the SSRF guard
+are actually in force** (`addressPolicyEnabled`, from
+`blockPrivateNetworkCalls`), which is a different question from whether the
+policy exists, and it is published because a caller cannot tell the two apart
+from a call that went through. Every configuration under `api/env/` turns those
+layers off — on a compose network the mock STS and the identity provider ARE
+private addresses — so a test that read "the metadata address was not refused"
+as a hole in the guard would be reading a deployment's own choice as a defect.
+That is not hypothetical: `tests/api_ssf.js` asserted a refusal unconditionally
+until 2026-09-01, passed on every developer machine because the address merely
+failed to connect, and went red on a GitHub Actions runner where
+`169.254.169.254` is Azure's instance metadata service and ANSWERS. The refusals
+themselves belong to `tests/api_ssrf_guard.js`, which drives the guard module
+directly and needs no network. The SCHEME check (`file:`, `data:`) is not
+configurable and is on either way. `tests/api_ssf.js` drives the routes;
+`tests/ssf_engine.js` drives both modules with no listener. See `docs/ssf.md`.
 
 ## SPIFFE: gRPC, and the only endpoint here that dials a filesystem path
 

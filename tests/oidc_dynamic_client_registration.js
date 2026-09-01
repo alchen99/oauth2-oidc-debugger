@@ -1,4 +1,5 @@
 const { Builder, By, until, logging } = require("selenium-webdriver");
+const browserFlags = require("./browser_flags.js");
 const chrome = require("selenium-webdriver/chrome");
 const assert = require("assert");
 const { Command, Option } = require('commander');
@@ -8,7 +9,7 @@ var bunyan = require("bunyan");
 var log = bunyan.createLogger({ name: 'oidc_dynamic_client_registration',
                                 level: appconfig.LOG_LEVEL || 'info' });
 log.info("Log initialized. logLevel=" + log.level());
-var baseUrl = "http://localhost:3000"
+var baseUrl = "https://localhost:3000"
 
 // The public static-content deployments (test.idptools.com / idptools.com) have
 // no api backend, and Dynamic Client Registration is a server-side operation:
@@ -115,7 +116,15 @@ async function test() {
   log.debug("Entering test().");
   const options = new chrome.Options();
   if (headless) {
-    options.addArguments("--headless");
+    // "=new", not bare --headless. This page fetches the discovery document
+    // itself, from a Keycloak that is http://keycloak:8080 on the
+    // containerized stack while the page is now https — and the OLD headless
+    // implementation in the Chrome 121 this image pins IGNORES
+    // --allow-running-insecure-content, so that XHR is blocked with
+    // readyState 4 / status 0 and no console entry naming mixed content.
+    // What the test then reports is a missing Populate button. See section 1
+    // of browser_flags.js.
+    options.addArguments("--headless=new");
   }
   options.addArguments("--no-sandbox");
   // Use /tmp instead of the container's tiny (64MB) /dev/shm, which otherwise
@@ -131,6 +140,12 @@ async function test() {
   const loggingPrefs = new logging.Preferences();
   loggingPrefs.setLevel(logging.Type.BROWSER, logging.Level.ALL);
 
+  // THE STACK'S CERTIFICATE, AS AN EXACT KEY PIN. The client and the api serve
+  // https (common/tls_listener.js), on a self-signed pair generated per run, so
+  // without this Chrome stops on a certificate interstitial and every
+  // assertion below reports a missing element on a page titled "Privacy
+  // error". See browser_flags.js.
+  browserFlags.addStsTrustFlags(options);
   const driver = await new Builder()
     .forBrowser("chrome")
     .setChromeOptions(options)

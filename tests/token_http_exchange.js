@@ -77,7 +77,7 @@ var bunyan = require("bunyan");
 var log = bunyan.createLogger({ name: 'token_http_exchange',
                                 level: appconfig.LOG_LEVEL || 'info' });
 log.info("Log initialized. logLevel=" + log.level());
-var baseUrl = "http://localhost:3000";
+var baseUrl = "https://localhost:3000";
 var headless = true;
 var waitTime = appconfig.waitTime;
 
@@ -305,7 +305,15 @@ async function test() {
   log.debug("Entering test().");
   const options = new chrome.Options();
   if (headless) {
-    options.addArguments("--headless");
+    // "=new", not bare --headless. This page fetches the discovery document
+    // itself, from a Keycloak that is http://keycloak:8080 on the
+    // containerized stack while the page is now https — and the OLD headless
+    // implementation in the Chrome 121 this image pins IGNORES
+    // --allow-running-insecure-content, so that XHR is blocked with
+    // readyState 4 / status 0 and no console entry naming mixed content.
+    // What the test then reports is a missing Populate button. See section 1
+    // of browser_flags.js.
+    options.addArguments("--headless=new");
   }
   options.addArguments("--no-sandbox");
   options.addArguments("--disable-dev-shm-usage");
